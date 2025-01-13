@@ -1,3 +1,9 @@
+import sys
+sys.path.insert(1, '/Users/rushruk/Documents/xai_attempts/CAR/CARs')
+# sys.path.append('/Users/rushruk/Documents/xai_attempts/CAR/CARs/models')
+# print("_______________")
+# print(sys.path)
+
 import itertools
 import logging
 import argparse
@@ -28,7 +34,7 @@ from sklearn.gaussian_process.kernels import Matern
 from tqdm import tqdm
 from utils.robustness import Attacker
 
-
+# Not sure what's this mapping about - need to look at later.
 concept_to_class = {
     "Loop": [0, 2, 6, 8, 9],
     "Vertical Line": [1, 4, 7],
@@ -77,7 +83,7 @@ def concept_accuracy(
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     torch.manual_seed(random_seeds[0])
 
-    representation_dir = save_dir / f"{model_name}_representations"
+    representation_dir = save_dir / f"{model_name}_representations" # Not sure why
     if not representation_dir.exists():
         os.makedirs(representation_dir)
 
@@ -861,53 +867,60 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     model_name = f"model_{args.latent_dim}"
-    if args.train:
-        train_mnist_model(args.latent_dim, args.batch_size, model_name=model_name)
-    if args.name == "concept_accuracy":
-        concept_accuracy(args.seeds, args.latent_dim, args.plot, model_name=model_name)
-    elif args.name == "global_explanations":
-        global_explanations(
+    global_explanations(
             args.seeds[0],
             args.batch_size,
             args.latent_dim,
             args.plot,
             model_name=model_name,
         )
-    elif args.name == "statistical_significance":
-        statistical_significance(args.seeds[0], args.latent_dim, model_name=model_name)
-    elif args.name == "feature_importance":
-        feature_importance(
-            args.seeds[0],
-            args.batch_size,
-            args.latent_dim,
-            args.plot,
-            model_name=model_name,
-        )
-    elif args.name == "kernel_sensitivity":
-        kernel_sensitivity(
-            args.seeds, args.latent_dim, args.plot, model_name=model_name
-        )
-    elif args.name == "concept_size_impact":
-        concept_size_impact(
-            args.seeds,
-            args.latent_dim,
-            args.concept_sizes,
-            args.plot,
-            model_name=model_name,
-        )
-    elif args.name == "tcar_inter_concepts":
-        tcar_inter_concept(
-            args.seeds[0],
-            args.batch_size,
-            args.latent_dim,
-            args.plot,
-            model_name=model_name,
-        )
-    elif args.name == "adversarial_robustness":
-        adversarial_robustness(
-            args.seeds[0], args.batch_size, args.latent_dim, model_name=model_name
-        )
-    elif args.name == "senn":
-        senn()
-    else:
-        raise ValueError(f"{args.name} is not a valid experiment name")
+    # if args.train:
+    #     train_mnist_model(args.latent_dim, args.batch_size, model_name=model_name)
+    # if args.name == "concept_accuracy":
+    #     concept_accuracy(args.seeds, args.latent_dim, args.plot, model_name=model_name)
+    # elif args.name == "global_explanations":
+    #     global_explanations(
+    #         args.seeds[0],
+    #         args.batch_size,
+    #         args.latent_dim,
+    #         args.plot,
+    #         model_name=model_name,
+    #     )
+    # elif args.name == "statistical_significance":
+    #     statistical_significance(args.seeds[0], args.latent_dim, model_name=model_name)
+    # elif args.name == "feature_importance":
+    #     feature_importance(
+    #         args.seeds[0],
+    #         args.batch_size,
+    #         args.latent_dim,
+    #         args.plot,
+    #         model_name=model_name,
+    #     )
+    # elif args.name == "kernel_sensitivity":
+    #     kernel_sensitivity(
+    #         args.seeds, args.latent_dim, args.plot, model_name=model_name
+    #     )
+    # elif args.name == "concept_size_impact":
+    #     concept_size_impact(
+    #         args.seeds,
+    #         args.latent_dim,
+    #         args.concept_sizes,
+    #         args.plot,
+    #         model_name=model_name,
+    #     )
+    # elif args.name == "tcar_inter_concepts":
+    #     tcar_inter_concept(
+    #         args.seeds[0],
+    #         args.batch_size,
+    #         args.latent_dim,
+    #         args.plot,
+    #         model_name=model_name,
+    #     )
+    # elif args.name == "adversarial_robustness":
+    #     adversarial_robustness(
+    #         args.seeds[0], args.batch_size, args.latent_dim, model_name=model_name
+    #     )
+    # elif args.name == "senn":
+    #     senn()
+    # else:
+    #     raise ValueError(f"{args.name} is not a valid experiment name")

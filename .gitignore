@@ -1,3 +1,4 @@
+venv_/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -137,3 +138,6 @@ results/
 
 # NLP
 .vector_cache
+
+./data
+venv_/

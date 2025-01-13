@@ -1,4 +1,5 @@
 import random
+import re
 import pandas as pd
 import os
 import logging
@@ -663,3 +664,398 @@ def generate_seer_concept_dataset(dataset: SEERDataset, concept_id: int, subset_
     C = torch.cat([torch.ones(subset_size), torch.zeros(subset_size)])
     rand_perm = torch.randperm(len(X))
     return X[rand_perm], C[rand_perm]
+
+# class SceneDataset(Dataset):
+    
+#     def __init__(self, 
+#                  data_dir: Path,
+#                  transform=None,
+#                  split_ratio: float = 0.8
+#                  ):
+#         super().__init__()
+#         self.data_dir = data_dir
+#         self.transform = transform
+#         self.class_names = [folder.name for folder in self.data_dir.glob('*') if folder.is_dir()]
+#         self.data = self.load_data()
+#         self.split_data(split_ratio)
+
+#     def load_data(self):
+#         data = []
+#         for class_name in self.class_names:
+#             class_dir = self.data_dir / class_name
+#             for image_path in class_dir.glob('*'):
+#                 data.append(
+#                     (
+#                         str(image_path), self.class_names.index(class_name)
+#                     )
+#                 )
+#         return data
+    
+#     def split_data(self, split_ratio: float):
+#         random.shuffle(self.data)
+#         split_idx = int(len(self.data) * split_ratio)
+#         self.train_data = self.data[:split_idx]
+#         self.test_data = self.data[split_idx:]
+
+#     def __len__(self) -> int:
+#         return len(self.train_data)
+    
+#     def __getitem__(self, index: int):
+#         img_path, label = self.train_data[index]
+#         image = Image.open(img_path)
+
+#         if self.transform:
+#             image = self.transform(image)
+        
+#         return image, label
+    
+# def load_scene_data(data_dir, batch_size):
+#     train_dir = data_dir / 'training'
+#     validation_dir = data_dir / 'validation'
+
+#     transform = transforms.Compose([
+#         transforms.RandomAffine(degrees=0, shear=0.2),  # Shear transformation with a shear factor of 0.2
+#         transforms.RandomAffine(degrees=0, scale=(0.8, 1.2)),  # Zoom transformation with a scale factor between 0.8 and 1.2
+#         transforms.Resize((224, 224)),  # Resize the image to (224, 224)
+#         transforms.ToTensor()  # Convert the image to a PyTorch tensor
+#     ])
+
+#     train_dataset = SceneDataset(train_dir, transform=transform)
+#     validation_dataset = SceneDataset(validation_dir, transform=transform)
+
+#     # train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True) # Will use this for full dataset
+#     # validation_loader = DataLoader(validation_dataset, batch_size=batch_size, drop_last=False) # Will use this for full dataset
+
+#     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+#     validation_loader = DataLoader(validation_dataset, batch_size=batch_size)
+
+#     return train_loader, validation_loader
+
+def custom_collate_fn(batch):
+    images = [item[0] for item in batch]
+    labels = [item[1] for item in batch]
+
+    # Check if annotations are present and handle accordingly
+    annotations = [item[2] if len(item) > 2 else None for item in batch]
+
+    images = torch.stack(images)
+    labels = torch.tensor(labels)
+
+    if annotations[0] is None:
+        return images, labels
+    else:
+        max_len = max(len(annotation) for annotation in annotations)
+        padded_annotations = []
+        for annotation in annotations:
+            pad_length = max_len - len(annotation)
+            padded_annotation = annotation + [''] * pad_length
+            padded_annotations.append(padded_annotation)
+        return images, labels, padded_annotations
+
+def load_ade20k_data(
+        batch_size: int
+):
+    ade20KDataObject = ADE20KDatasetPrepper()
+    train_data, validation_data, test_data = ade20KDataObject.get_all_data()
+
+    transform = transforms.Compose([
+        transforms.RandomAffine(degrees=0, shear=0.2),  # Shear transformation with a shear factor of 0.2
+        transforms.RandomAffine(degrees=0, scale=(0.8, 1.2)),  # Zoom transformation with a scale factor between 0.8 and 1.2
+        transforms.Resize((224, 224)),  # Resize the image to (224, 224)
+        transforms.ToTensor()  # Convert the image to a PyTorch tensor
+    ])
+
+    train_dataset = ADE20KDataset(train_data, transform=transform)
+    validation_dataset = ADE20KDataset(validation_data, transform=transform)
+    test_dataset = ADE20KDataset(test_data, transform=transform, is_test=True)
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=custom_collate_fn)
+    validation_loader = DataLoader(validation_dataset, batch_size=batch_size, collate_fn=custom_collate_fn)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, collate_fn=custom_collate_fn)
+
+    return train_loader, validation_loader, test_loader
+
+def get_ade20k_concept_dataset(
+        concept_name: str,
+        subset_size: int,
+        random_seed: int,
+        train: bool = False
+    ):
+    ade20KDataObject = ADE20KDatasetPrepper()
+    train_data, validation_data, test_data = ade20KDataObject.get_all_data()
+
+    transform = transforms.Compose([
+        transforms.RandomAffine(degrees=0, shear=0.2),  # Shear transformation with a shear factor of 0.2
+        transforms.RandomAffine(degrees=0, scale=(0.8, 1.2)),  # Zoom transformation with a scale factor between 0.8 and 1.2
+        transforms.Resize((224, 224)),  # Resize the image to (224, 224)
+        transforms.ToTensor()  # Convert the image to a PyTorch tensor
+    ])
+
+    if train:
+        test_dataset = ADE20KDataset(train_data, transform=transform, is_test=True)
+    else:
+        test_dataset = ADE20KDataset(test_data, transform=transform, is_test=True)
+    mask = torch.zeros(len(test_dataset))
+
+    for idx, test_data in enumerate(test_dataset):  # Scan the dataset for valid examples
+        annotations = test_data[2]
+        if concept_name in annotations:
+            mask[idx] = 1
+    positive_idx = torch.nonzero(mask).flatten()
+    negative_idx = torch.nonzero(1 - mask).flatten()
+    subset_size = min(subset_size, len(positive_idx))
+    if(subset_size == 0):
+        return None, None
+
+    positive_loader = torch.utils.data.DataLoader(test_dataset, batch_size=subset_size,
+                                                  sampler=SubsetRandomSampler(positive_idx), collate_fn=custom_collate_fn)
+    negative_loader = torch.utils.data.DataLoader(test_dataset, batch_size=subset_size,
+                                                  sampler=SubsetRandomSampler(negative_idx), collate_fn=custom_collate_fn)
+    positive_images, positive_labels, positive_annotations = next(iter(positive_loader))
+    negative_images, negative_labels, negative_annotations = next(iter(negative_loader))
+    X = np.concatenate((positive_images.cpu().numpy(), negative_images.cpu().numpy()), 0)
+    y = np.concatenate((np.ones(subset_size), np.zeros(subset_size)), 0)
+
+    # ----------- test with google image combination ------------- #
+    if train:
+        X_train, y_train, X_test, y_test = generate_scene_concept_dataset(
+            concept_name=concept_name,
+            data_dir=Path.cwd() / "data/scene/google_image/google_image/",
+            subset_size=200, # Need to check this
+            random_seed=random_seed
+        )
+
+        X = np.concatenate((X, X_train), 0)
+        y = np.concatenate((y, y_train), 0)
+
+    np.random.seed(random_seed)
+    rand_perm = np.random.permutation(len(X))
+    return X[rand_perm], y[rand_perm]
+
+class ADE20KDatasetPrepper():
+    def __init__(
+            self,
+            data_dir: Path = Path.cwd() / "data/scene/ade20k/",
+            annotation_dir: Path = Path.cwd() / "data/scene/ade20k_annotations/",
+            split_ratio: float = 0.8
+    ):
+        self.split_ratio = split_ratio
+        self.data_dir = data_dir
+        self.annotation_dir = annotation_dir
+        self.train_dir = self.data_dir / 'training'
+        self.validation_dir = self.data_dir / 'validation'
+        self.class_names = [folder.name for folder in self.train_dir.glob('*') if folder.is_dir()]
+        self.train_test_data = self.load_data(self.train_dir)
+        self.validation_data = self.load_data(self.validation_dir)
+        self.train_data, self.test_data = self.split_data()
+
+    def load_data(self, data_dir: Path):
+        data = []
+        for class_name in self.class_names:
+            class_dir = data_dir / class_name
+            for image_path in class_dir.glob('*'):
+                # get corresponding annotation filepath and append to data -- change the extension from .jpg to .txt
+                annotation_path = self.annotation_dir / class_name / image_path.name 
+                annotation_path = annotation_path.with_suffix('.txt')
+                annotation_path = annotation_path.parent / (annotation_path.stem + '_atr' + annotation_path.suffix)
+                if not annotation_path.exists():
+                    print(f"Annotation file {annotation_path} does not exist")
+                    continue
+                annotations = self.load_annotations(annotation_path)
+
+                data.append(
+                    (
+                        str(image_path), self.class_names.index(class_name), annotations
+                    )
+                )
+
+        return data
+    
+    def load_annotations(self, annotation_path: Path):
+        unique_concepts = set()
+        with open(annotation_path, 'r') as file:
+            for line in file:
+                parts = line.strip().split('#')
+                for part in parts:
+                    # Use regular expression to extract words consisting of alphabets
+                    words = re.findall(r'\b[a-zA-Z\s]+\b', part)
+                    for word in words:
+                        if ' ' in word:
+                            # If it's a multi-word phrase, join with underscores
+                            word = '_'.join(word.split())
+                        unique_concepts.add(word.lower())
+
+        return list(unique_concepts)
+    
+    def split_data(self):
+        random.shuffle(self.train_test_data)
+        split_idx = int(len(self.train_test_data) * self.split_ratio)
+        train_data = self.train_test_data[:split_idx]
+        test_data = self.train_test_data[split_idx:]
+
+        return train_data, test_data
+    
+    def get_all_data(self):
+        return self.train_data, self.validation_data, self.test_data
+        
+class ADE20KDataset(Dataset):
+    def __init__(self,
+                 data: list,
+                 transform = None,
+                 is_test: bool = False
+                 ):
+        super().__init__()
+        self.data = data
+        self.transform = transform
+        self.is_test = is_test
+    
+    def __len__(self) -> int:
+        return len(self.data)
+    
+    def __getitem__(self, index: int):
+        img_path, label, annotations = self.data[index]
+        image = Image.open(img_path)
+
+        if self.transform:
+            image = self.transform(image)
+        
+        if(self.is_test):
+            return image, label, annotations
+        else:
+            return image, label
+
+
+class GooglePositiveImageDataset(Dataset):
+    def __init__(self, data_dir, transform=None):
+        """
+        Args:
+            data_dir (str): The directory path containing the images.
+            transform (callable, optional): A function/transform to apply to the images (e.g., data augmentation).
+        """
+        self.data_dir = data_dir
+        self.transform = transform
+        self.image_paths = self._collect_image_paths()
+
+    def _collect_image_paths(self):
+        image_paths = []
+        for root, _, files in os.walk(self.data_dir):
+            for file in files:
+                if file.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+                    image_paths.append(os.path.join(root, file))
+        return image_paths
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+
+        img_path = self.image_paths[idx]
+        image = Image.open(img_path)
+
+        if self.transform:
+            image = self.transform(image)
+
+        return image
+
+class GoogleNegativeImageDataset(Dataset):
+    def __init__(self, data_dirs, num_images, transform=None):
+        """
+        Args:
+            data_dirs (list): List of directory paths containing images.
+            num_images (int): Number of images to include in the dataset.
+            transform (callable, optional): A function/transform to apply to the images (e.g., data augmentation).
+        """
+        self.data_dirs = data_dirs
+        self.num_images = num_images
+        self.transform = transform
+        self.image_paths = self._collect_image_paths()
+        
+    def _collect_image_paths(self):
+        image_paths = []
+        for data_dir in self.data_dirs:
+            for root, _, files in os.walk(data_dir):
+                for file in files:
+                    if file.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+                        image_paths.append(os.path.join(root, file))
+        
+        return image_paths
+
+    def __len__(self):
+        return min(len(self.image_paths), self.num_images)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        
+        img_path = random.choice(self.image_paths)
+        image = Image.open(img_path)
+
+        if self.transform:
+            image = self.transform(image)
+
+        if(image.shape[0] != 3):
+            print(f"image {img_path} has {image.shape[0]} channels")
+        return image
+
+def generate_scene_concept_dataset(
+        concept_name: str,
+        data_dir: Path,
+        subset_size: int,
+        random_seed: int
+):
+    transform = transforms.Compose([
+        transforms.Grayscale(num_output_channels=3),
+        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+        transforms.RandomAffine(degrees=0, shear=0.2),  # Shear transformation with a shear factor of 0.2
+        transforms.RandomAffine(degrees=0, scale=(0.8, 1.2)),  # Zoom transformation with a scale factor between 0.8 and 1.2
+        transforms.Resize((224, 224)),  # Resize the image to (224, 224)
+        transforms.ToTensor()  # Convert the image to a PyTorch tensor
+    ])
+    concept_path = Path(data_dir) / concept_name
+    positive_dataset = GooglePositiveImageDataset(concept_path, transform=transform)
+    positive_len = len(positive_dataset)
+    negative_concept_dirs = [folder for folder in data_dir.glob('*') if folder.is_dir() and folder != concept_path]
+    negative_dataset = GoogleNegativeImageDataset(negative_concept_dirs, positive_len, transform=transform)
+    batch_size = len(positive_dataset)
+
+    train_size = int(0.8 * batch_size)
+    test_size = batch_size - train_size
+
+    logging.info(f"concept: {concept_name}, positive: {len(positive_dataset)}, negative: {len(negative_dataset)}")
+
+    positive_train_dataset, positive_test_dataset = torch.utils.data.random_split(positive_dataset, [train_size, test_size])
+    negative_train_dataset, negative_test_dataset = torch.utils.data.random_split(negative_dataset, [train_size, test_size])
+    
+    positive_train_loader = DataLoader(positive_train_dataset, batch_size=train_size, shuffle=True)
+    positive_test_loader = DataLoader(positive_test_dataset, batch_size=test_size, shuffle=True)
+    negative_train_loader = DataLoader(negative_train_dataset, batch_size=train_size, shuffle=True)
+    negative_test_loader = DataLoader(negative_test_dataset, batch_size=test_size, shuffle=True)
+
+    positive_train_images = next(iter(positive_train_loader))
+    positive_test_images = next(iter(positive_test_loader))
+    negative_train_images = next(iter(negative_train_loader))
+    negative_test_images = next(iter(negative_test_loader))
+    
+    X_train = np.concatenate((positive_train_images.cpu().numpy(), negative_train_images.cpu().numpy()), 0)
+    y_train = np.concatenate((np.ones(train_size), np.zeros(train_size)), 0)
+    X_test = np.concatenate((positive_test_images.cpu().numpy(), negative_test_images.cpu().numpy()), 0)
+    y_test = np.concatenate((np.ones(test_size), np.zeros(test_size)), 0)
+
+    np.random.seed(random_seed)
+    rand_perm = np.random.permutation(len(X_train))
+    X_train = X_train[rand_perm]
+    y_train = y_train[rand_perm]
+
+    np.random.seed(random_seed)
+    rand_perm = np.random.permutation(len(X_test))
+    X_test = X_test[rand_perm]
+    y_test = y_test[rand_perm]
+
+    return X_train, y_train, X_test, y_test
+
+
+def get_scene_concepts(data_dir: Path):
+    concept_names = [folder.name for folder in data_dir.glob('*') if folder.is_dir()]
+    return concept_names
